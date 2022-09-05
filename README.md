@@ -39,3 +39,13 @@ Construcción de columnas de información valiosa. Se me ocurre, por ejemplo, d�
 Idealmente, construir columna target suponiendo predicción de compra. Para esto, se debería tomar como compra aquel usuario que vió un producto -> lo agregó al carrito -> lo compró en un mismo tiempo dado.
 En caso de construir dicha columna, evaluar el balance (proporción de 1 vs proporción de 0) de la misma, y la distribución de las otras variables contra el target.
 Selección de variables relevantes para predecir la compra
+
+----
+
+## 📌 Notas 
+
+Este trabajo fué realizado por Carolina Guzman, Cecilia Manoni, Agustina Ghelfi y Noelia Ferrero, en el marco de la Diplomatura Superior en Data Science Aplicada. 
+En el siguiente [video](https://youtu.be/WoDWnI85wAk/) se puede acceder a la presentacion destinada al Negocio, es decir, con un enfoque más orientado al nivel ejecutivo
+
+✨
+
