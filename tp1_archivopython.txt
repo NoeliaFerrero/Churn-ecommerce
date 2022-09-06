@@ -1,0 +1,188 @@
+import sys
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+
+# método de para tratamiento de fechas de fechas
+def process_event_time(df, time_format='%Y-%m-%d %H:%M:%S UTC'):
+    df['event_time'] = pd.to_datetime(df['event_time'], format=time_format)
+    df['day_of_week'] = df.event_time.dt.day_name()
+    df = df.drop(columns='event_time')  # no lo uso con inplace porque me puede afectar la variable global df
+    return df
+
+
+def create_new_product_id(df):
+    # creación de nueva columna con 3 primeros n° de product_id
+    df['cat_code'] = df['product_id'].astype(str).str[:3]
+    newdf = df[['cat_code', 'category_code']].copy()
+    newdf = newdf.set_index('cat_code')
+    newdf = newdf.dropna().drop_duplicates()
+    cat_codes_dict = newdf['category_code'].to_dict()
+    # rellenar nulos coincidentes de category_code
+    df['cat_code'] = df['category_code'].fillna(df['cat_code'].map(cat_codes_dict))
+    # eliminar filas con category code nulos
+    df = df.drop(df[df['category_code'].isna()].index)
+    return df
+
+
+# método para tratamiento de categorías
+def prepare_categories(df, levels=2):
+    df_categories = df['category_code'].str.split('.', expand=True)
+    if len(df_categories.columns) > levels:
+        to_remove = df_categories.columns[levels:]
+    df_categories.drop(columns=to_remove,
+                       inplace=True)  # puedo usar el inplace porque no es global, la estoy definiendo acá
+    df = pd.concat([df, df_categories], axis=1)
+    df = df.drop(columns=['category_code', 'brand'])
+    df.columns = ['event_type', 'product_id', 'category_id', 'price', 'user_id', 'user_session', 'day_of_week',
+                  'cat_code', 'category', 'product']
+    return df
+
+
+def grafico_categorias(df):
+    ncount = len(df)
+    plt.figure(figsize=(12, 8))
+    ax = sns.countplot(x='category',
+                       data=df,
+                       order=df['category'].value_counts().index,
+                       palette='rocket')
+    plt.title('Categorías más frecuentes')
+    plt.xlabel('Categoría')
+    plt.ticklabel_format(style='plain', axis='y')
+
+    # Make twin axis
+    ax2 = ax.twinx()
+
+    # Switch so count axis is on right, frequency on left
+    ax2.yaxis.tick_left()
+    ax.yaxis.tick_right()
+
+    # Also switch the labels over
+    ax.yaxis.set_label_position('right')
+    ax2.yaxis.set_label_position('left')
+    ax2.set_ylabel('Frequency [%]')
+
+    for p in ax.patches:
+        x = p.get_bbox().get_points()[:, 0]
+        y = p.get_bbox().get_points()[1, 1]
+        ax.annotate('{:.1f}%'.format(100. * y / ncount), (x.mean(), y),
+                    ha='center', va='bottom', fontsize=16)  # set the alignment of the text
+
+    # Fix the frequency range to 0-100
+    ax2.set_ylim(0, 50)
+
+    # Need to turn the grid on ax2 off, otherwise the gridlines end up on top of the bars
+    ax2.grid(b=False)
+    plt.savefig('categoriasmasfrecuentes.jpg')
+
+
+def drop_outliers(category, df, umbral=3):
+    price_category = df.loc[df['category'] == category, 'price']
+    Q1 = price_category.quantile(0.25)
+    Q3 = price_category.quantile(0.75)
+    IQR = Q3 - Q1
+    umbral_outlier = IQR * umbral
+    df = df.drop(price_category[price_category > umbral_outlier].index)
+    return df
+
+
+def grafico_evento_dia(df):
+    vistas_smartp_porc = (df[(df['event_type'] == 'view') & (df['product'] == 'smartphone')].groupby(
+        'day_of_week').size()) / len(df[(df['product'] == 'smartphone')]) * 100
+    carrito_smartp_porc = (df[(df['event_type'] == 'cart') & (df['product'] == 'smartphone')].groupby(
+        'day_of_week').size()) / len(df[(df['product'] == 'smartphone')]) * 100
+    compras_smartp_porc = (df[(df['event_type'] == 'purchase') & (df['product'] == 'smartphone')].groupby(
+        'day_of_week').size()) / len(df[(df['product'] == 'smartphone')]) * 100
+
+    fig, ax = plt.subplots()
+    vistas_smartp_porc.plot(figsize=(15, 10), color='g', label='View')
+    carrito_smartp_porc.plot(figsize=(15, 10), label='Cart')
+    compras_smartp_porc.plot(figsize=(15, 10), color='r', label='Purchase')
+    plt.title('Evento por dia de la semana')
+    plt.legend()
+    plt.savefig('eventopordia.jpg')
+
+    fig, ax = plt.subplots()
+    df[(df['event_type'] == 'view') & (df['product'] == 'smartphone')].groupby('day_of_week').size().plot(
+        figsize=(15, 10), ax=ax, color='g', label='View')
+    ax2 = ax.twinx()
+    df[(df['event_type'] == 'cart') & (df['product'] == 'smartphone')].groupby('day_of_week').size().plot(
+        figsize=(15, 10), ax=ax2, label='Cart')
+    ax3 = ax.twinx()
+    df[(df['event_type'] == 'purchase') & (df['product'] == 'smartphone')].groupby('day_of_week').size().plot(
+        figsize=(15, 10), ax=ax3, color='r', label='Purchase')
+    plt.title('Evento por dia de la semana')
+    plt.savefig('zoomeventopordia.jpg')
+
+
+def analisis_multivariado(df):
+    df_carpur = df[~(df['event_type'] == 'view')].copy()
+    df_carpur.groupby('user_session')['event_type'].value_counts()
+    abandono = pd.crosstab(df_carpur['user_session'], df['event_type'])
+    sesion_abandono = abandono[abandono['purchase'] == 0].index.to_list()
+    usuario_abandonadores = df_carpur[df_carpur['user_session'].isin(sesion_abandono)]['user_id'].nunique()
+    compra_directa = abandono[abandono['cart'] == 0].index.to_list()
+    usuario_compra_sin_carrito = df_carpur[df_carpur['user_session'].isin(compra_directa)]['user_id'].nunique()
+    total_usuarios_purcar = df_carpur['user_id'].nunique()
+    porc_abandonadores = usuario_abandonadores / total_usuarios_purcar * 100
+    porc_compradores_dir = usuario_compra_sin_carrito / total_usuarios_purcar * 100
+    porc_carrito_compra = 100 - porc_abandonadores - porc_compradores_dir
+
+    tipo_usuario = [porc_abandonadores, porc_compradores_dir, porc_carrito_compra]
+    mylabels = 'Abandono de carrito', 'Compra directa', 'Carrito y compra'
+    colors = ['pink', 'mediumpurple', 'lavender']
+    fig1, ax1 = plt.subplots(figsize=(7, 7))
+    ax1 = plt.pie(tipo_usuario, labels=mylabels, autopct='%1.1f%%', colors=colors)
+    plt.title('Tasa de abandono de carrito por sesión', fontsize=16)
+    plt.savefig('abandonodecarrito.jpg')
+
+
+if __name__ == '__main__':
+    path = sys.argv[1]
+    #path = C:\Users\cecim\jupyter\Diplodatos\data-ecomm-10-19-sampled.parquet
+    print(path)
+    df = pd.read_parquet(path, engine='pyarrow')
+
+    df.drop_duplicates(inplace=True)
+
+    df_preprocessed = process_event_time(df)
+
+    view_ccode_nan = df_preprocessed.loc[
+        (df_preprocessed['event_type'] == 'view')
+        & (df_preprocessed.category_code.isna())]
+    df_preprocessed.drop(view_ccode_nan.index, inplace=True)
+
+    df_preprocessed = create_new_product_id(df_preprocessed)
+
+    df_preprocessed = prepare_categories(df_preprocessed)
+
+    # productos gratis
+    free_prods = df_preprocessed[df_preprocessed['price'] == 0]
+    df_preprocessed.drop(free_prods.index, inplace=True)
+
+    # categorias mas frecuentes
+    cat_frecuentes = df_preprocessed['category'].value_counts(normalize=True)[:8].index.to_list()
+    df_preprocessed.loc[~(df_preprocessed['category'].isin(cat_frecuentes)), 'category'] = 'others'
+
+    grafico_categorias(df_preprocessed)
+
+    categoy_df = ['apparel', 'others', 'kids', 'auto']
+    for i in categoy_df:
+        df_preprocessed = drop_outliers(category=i, df=df_preprocessed)
+
+    # Analisis Univariado
+    fig, ax = plt.subplots(figsize=(10, 6))
+    sns_plot = sns.distplot(df_preprocessed['price'], bins=23, hist=True, kde=True)
+    ax.set_title('Histograma de precio')  # están concentrados entre 0 y 250 mas o menos
+    fig = ax.get_figure()
+    fig.savefig('histogramaprecios.jpg', dpi=400)
+
+    # Grafico Evento por dia de la semana
+    grafico_evento_dia(df_preprocessed)
+
+    # Analisis Multivariado
+    analisis_multivariado(df_preprocessed)
+
+    df_preprocessed.to_csv('output.csv')
+    print('termine')
