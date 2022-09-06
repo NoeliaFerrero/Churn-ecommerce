@@ -4,7 +4,7 @@ Exploración de Datos
 Datos de Sitio de Ecommerce
 
 
-Descripción:
+## Descripción:
 
 Los datos utilizados corresponden a un sitio de e-commerce. En el mismo podemos identificar 9 columnas. 
 Se forman 3 datasets distintos:
